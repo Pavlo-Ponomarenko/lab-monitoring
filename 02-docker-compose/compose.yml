@@ -1,0 +1,63 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - prometheus-data:/prometheus # дані переживають перезапуск
+    ports:
+      - "9090:9090"
+    depends_on:
+      - web-exporter
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+
+  alertmanager-discord:
+    image: benjojo/alertmanager-discord:latest
+    ports:
+      - "9094:9094"
+    environment:
+      - DISCORD_WEBHOOK=https://discord.com/api/webhooks/1526182766306398218/eL8SKLa_GwifudMEqz6VO-XZnNgIk1UM-SQ0y19EYOZLX-WyS0XfAC0vof62nDI5-5xy
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASS:-admin} # з .env, не хардкод
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "9100:9100"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    ports:
+      - "8080:8080"
+
+  web:
+    build:
+      context: ./web
+    ports:
+      - "8081:443"
+
+  web-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    command: ["-nginx.scrape-uri=https://web:443/stub_status"]
+    depends_on:
+      - web
+
+volumes:
+  grafana-data:
+  prometheus-data:

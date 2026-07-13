@@ -1,0 +1,9 @@
+# alertmanager.yml
+route:
+  receiver: "web-server-status"
+
+receivers:
+  - name: "web-server-status"
+    webhook_configs:
+      - url: "http://alertmanager-discord:9094/webhook"
+        send_resolved: true
