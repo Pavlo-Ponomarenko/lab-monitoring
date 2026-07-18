@@ -1,2 +1,6 @@
 **/certificates/*
+**/.terraform/*
+*.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
 .env
