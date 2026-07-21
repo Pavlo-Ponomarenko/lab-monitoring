@@ -24,9 +24,7 @@ module "ecs_primary" {
 module "efs" {
   source = "../modules/efs"
 
-  count = 2
-
   vpc_id = module.vpc.vpc_id
   cluster_sg_id = module.ecs_primary.ecs_sg_id
-  subnet_id = module.vpc.private_subnet_ids[count.index]
+  subnet_id = module.vpc.private_subnet_ids[0]
 }

@@ -3,16 +3,38 @@ resource "aws_security_group" "ecs_sg" {
   description = "Allow traffic from ALB and internal Service Connect"
   vpc_id      = var.vpc_id
 
-  # ВХІДНИЙ ТРАФІК: Дозволяємо ALB стукатися до наших контейнерів
   ingress {
-    description     = "Allow traffic from ALB"
+    description     = "Allow traffic from ALB to web-app"
     from_port       = 80
     to_port         = 80
     protocol        = "tcp"
-    security_groups = [var.lb_sg_id] # Зв'язка з SG балансера
+    security_groups = [var.lb_sg_id]
   }
 
-  # ВХІДНИЙ ТРАФІК: Залишаємо для Service Connect (локальний проксі Envoy)
+  ingress {
+    description     = "Allow traffic from ALB to Grafana"
+    from_port       = 3000
+    to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [var.lb_sg_id]
+  }
+
+  ingress {
+    description     = "Allow traffic from ALB to Prometheus"
+    from_port       = 9090
+    to_port         = 9090
+    protocol        = "tcp"
+    security_groups = [var.lb_sg_id]
+  }
+
+  ingress {
+    description     = "Allow traffic from ALB to Alertmanager"
+    from_port       = 9093
+    to_port         = 9093
+    protocol        = "tcp"
+    security_groups = [var.lb_sg_id]
+  }
+
   ingress {
     description = "Allow internal Service Connect proxy traffic"
     from_port   = 0

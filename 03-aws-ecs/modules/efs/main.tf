@@ -10,7 +10,7 @@ resource "aws_security_group" "efs" {
 }
 
 resource "aws_efs_file_system" "efs" {
-  creation_token = "efs"
+  creation_token = "lab-monitoring-efs"
 }
 
 resource "aws_efs_mount_target" "efs_mount" {
