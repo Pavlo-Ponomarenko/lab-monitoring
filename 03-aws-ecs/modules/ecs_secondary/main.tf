@@ -2,6 +2,10 @@ data "aws_iam_role" "ecs_execution_role" {
   name = "ecs-task-execution-role"
 }
 
+data "aws_iam_role" "monitoring_task_role" {
+  name = "monitoring-task-role"
+}
+
 data "aws_security_group" "ecs_sg" {
   name   = "ecs-service-sg"
 }
@@ -51,6 +55,42 @@ data "aws_efs_file_system" "efs" {
   creation_token = "lab-monitoring-efs"
 }
 
+data "aws_ecr_repository" "ecs_repo" {
+  name = "lab-monitoring-web"
+}
+
+data "aws_secretsmanager_secret" "grafana_admin_password" {
+  name = "/lab/grafana/admin_password"
+}
+
+data "aws_secretsmanager_secret" "mon_slack_webhook" {
+  name = "/lab/mon/slack_webhook"
+}
+
+data "aws_ssm_parameter" "web_welcome_msg" {
+  name = "/lab/web/welcome_msg"
+}
+
+data "aws_ssm_parameter" "mon_scrape_interval" {
+  name = "/lab/mon/scrape_interval"
+}
+
+data "aws_cloudwatch_log_group" "web_app" {
+  name = "/ecs/web-app"
+}
+
+data "aws_cloudwatch_log_group" "prometheus" {
+  name = "/ecs/prometheus"
+}
+
+data "aws_cloudwatch_log_group" "grafana" {
+  name = "/ecs/grafana"
+}
+
+data "aws_cloudwatch_log_group" "alertmanager" {
+  name = "/ecs/alertmanager"
+}
+
 resource "aws_ecs_task_definition" "web" {
   family                   = "web-task"
   network_mode             = "awsvpc"
@@ -62,11 +102,13 @@ resource "aws_ecs_task_definition" "web" {
   container_definitions = jsonencode([
     {
       name      = "web-app"
-      image     = "nginx:alpine"
+      image     = "${data.aws_ecr_repository.ecs_repo.repository_url}:${var.image_tag}"
       essential = true
       entryPoint = ["/bin/sh", "-c"]
       command = [
         <<-EOT
+        mkdir -p /usr/share/nginx/html
+        echo "<html><body><h1>$WELCOME_MSG</h1></body></html>" > /usr/share/nginx/html/index.html
         cat <<'EOF' > /etc/nginx/conf.d/default.conf
         server {
           listen 80;
@@ -80,7 +122,7 @@ resource "aws_ecs_task_definition" "web" {
           }
         }
         EOF
-        nginx -g 'daemon off;'
+        exec nginx -g 'daemon off;'
         EOT
       ]
       portMappings = [
@@ -91,6 +133,20 @@ resource "aws_ecs_task_definition" "web" {
           protocol      = "tcp"
         }
       ]
+      secrets = [
+        {
+          name      = "WELCOME_MSG"
+          valueFrom = data.aws_ssm_parameter.web_welcome_msg.arn
+        }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = data.aws_cloudwatch_log_group.web_app.name
+          "awslogs-region"        = "eu-central-1"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
     }
   ])
 }
@@ -135,6 +191,7 @@ resource "aws_ecs_task_definition" "monitoring" {
   cpu                      = "1024"
   memory                   = "4096"
   execution_role_arn       = data.aws_iam_role.ecs_execution_role.arn
+  task_role_arn            = data.aws_iam_role.monitoring_task_role.arn
 
   volume {
     name = "prometheus-storage"
@@ -158,10 +215,26 @@ resource "aws_ecs_task_definition" "monitoring" {
         }
       ]
       "user": "0",
-      "command": [
-        "--config.file=/etc/prometheus/prometheus.yml",
-        "--storage.tsdb.path=/prometheus"
-      ],
+      entryPoint = ["/bin/sh", "-c"]
+      command = [
+        <<-EOT
+        cat <<EOF > /etc/prometheus/prometheus.yml
+        global:
+          scrape_interval: $SCRAPE_INTERVAL
+        scrape_configs:
+          - job_name: 'prometheus'
+            static_configs:
+              - targets: ['web.lab.local:80']
+        EOF
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus
+        EOT
+      ]
+      secrets = [
+        {
+          name      = "SCRAPE_INTERVAL"
+          valueFrom = data.aws_ssm_parameter.mon_scrape_interval.arn
+        }
+      ]
       # Mount the EFS volume to the Prometheus data directory
       mountPoints = [
         {
@@ -170,6 +243,14 @@ resource "aws_ecs_task_definition" "monitoring" {
           readOnly      = false
         }
       ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = data.aws_cloudwatch_log_group.prometheus.name
+          "awslogs-region"        = "eu-central-1"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
     },
     {
       name      = "grafana"
@@ -190,18 +271,50 @@ resource "aws_ecs_task_definition" "monitoring" {
         {
           name  = "GF_SERVER_SERVE_FROM_SUB_PATH"
           value = "true"
+        },
+        {
+          name  = "GF_SECURITY_ADMIN_USER"
+          value = "admin"
         }
       ]
+      secrets = [
+        {
+          name      = "GF_SECURITY_ADMIN_PASSWORD"
+          valueFrom = data.aws_secretsmanager_secret.grafana_admin_password.arn
+        }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = data.aws_cloudwatch_log_group.grafana.name
+          "awslogs-region"        = "eu-central-1"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
     },
     {
       name      = "alertmanager"
       image     = "prom/alertmanager:latest"
-      "command": [
-        "--config.file=/etc/alertmanager/alertmanager.yml",
-        "--storage.path=/alertmanager",
-        "--web.external-url=http://${data.aws_lb.alb.dns_name}/alertmgr",
-        "--web.route-prefix=/alertmgr"
-      ],
+      entryPoint = ["/bin/sh", "-c"]
+      command = [
+        <<-EOT
+        mkdir -p /etc/alertmanager
+        cat <<EOF > /etc/alertmanager/alertmanager.yml
+        route:
+          receiver: 'slack-notifications'
+        receivers:
+          - name: 'slack-notifications'
+            slack_configs:
+              - api_url: '$SLACK_WEBHOOK'
+                channel: '#alerts'
+        EOF
+        exec /bin/alertmanager \
+          --config.file=/etc/alertmanager/alertmanager.yml \
+          --storage.path=/alertmanager \
+          --web.external-url=http://${data.aws_lb.alb.dns_name}/alertmgr \
+          --web.route-prefix=/alertmgr
+        EOT
+      ]
       portMappings = [
         {
           name          = "http-alertmgr"
@@ -210,6 +323,20 @@ resource "aws_ecs_task_definition" "monitoring" {
           protocol      = "tcp"
         }
       ]
+      secrets = [
+        {
+          name      = "SLACK_WEBHOOK"
+          valueFrom = data.aws_secretsmanager_secret.mon_slack_webhook.arn
+        }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = data.aws_cloudwatch_log_group.alertmanager.name
+          "awslogs-region"        = "eu-central-1"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
     }
   ])
 }

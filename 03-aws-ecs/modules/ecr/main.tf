@@ -1,6 +1,6 @@
 # 1. Створення ECR-репозиторію
 resource "aws_ecr_repository" "repo" {
-  name                 = "lab-monitoring-repo"
+  name                 = "lab-monitoring-web"
   image_tag_mutability = "MUTABLE" # Дозволяє перезаписувати теги (наприклад, latest)
 }
 

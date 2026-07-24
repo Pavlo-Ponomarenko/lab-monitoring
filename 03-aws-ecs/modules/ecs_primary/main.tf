@@ -70,6 +70,78 @@ resource "aws_iam_role_policy_attachment" "ecs_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+data "aws_iam_policy_document" "ecs_secrets_access" {
+  statement {
+    sid    = "AllowReadSSMParameters"
+    effect = "Allow"
+
+    actions = [
+      "ssm:GetParameters",
+    ]
+
+    resources = [
+      var.web_welcome_msg_arn,
+      var.mon_scrape_interval_arn,
+    ]
+  }
+
+  statement {
+    sid    = "AllowReadSecretsManager"
+    effect = "Allow"
+
+    actions = [
+      "secretsmanager:GetSecretValue",
+    ]
+
+    resources = [
+      var.grafana_admin_password_arn,
+      var.mon_slack_webhook_arn,
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_execution_custom_secrets" {
+  name   = "ecs-execution-secrets-ssm-policy"
+  role   = aws_iam_role.ecs_execution_role.id
+  policy = data.aws_iam_policy_document.ecs_secrets_access.json
+}
+
+resource "aws_iam_role" "monitoring_task_role" {
+  name = "monitoring-task-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+    }]
+  })
+}
+
+data "aws_iam_policy_document" "monitoring_efs_access" {
+  statement {
+    sid    = "AllowEFSAccess"
+    effect = "Allow"
+
+    actions = [
+      "elasticfilesystem:ClientMount",
+      "elasticfilesystem:ClientWrite",
+      "elasticfilesystem:ClientRootAccess"
+    ]
+
+    resources = [
+      "*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "monitoring_task_efs_policy" {
+  name   = "monitoring-task-efs-policy"
+  role   = aws_iam_role.monitoring_task_role.id
+  policy = data.aws_iam_policy_document.monitoring_efs_access.json
+}
+
 resource "aws_service_discovery_http_namespace" "sc_namespace" {
   name        = "lab.local"
   description = "Service Connect Namespace"
