@@ -55,10 +55,6 @@ data "aws_efs_file_system" "efs" {
   creation_token = "lab-monitoring-efs"
 }
 
-data "aws_ecr_repository" "ecs_repo" {
-  name = "lab-monitoring-web"
-}
-
 data "aws_secretsmanager_secret" "grafana_admin_password" {
   name = "/lab/grafana/admin_password"
 }
@@ -73,6 +69,22 @@ data "aws_ssm_parameter" "web_welcome_msg" {
 
 data "aws_ssm_parameter" "mon_scrape_interval" {
   name = "/lab/mon/scrape_interval"
+}
+
+data "aws_ecr_repository" "web_repo" {
+  name = "lab-monitoring-web"
+}
+  
+data "aws_ecr_repository" "prometheus_repo" {
+  name = "lab-monitoring-prometheus"
+}
+
+data "aws_ecr_repository" "grafana_repo" {
+  name = "lab-monitoring-grafana"
+}
+
+data "aws_ecr_repository" "alertmanager_repo" {
+  name = "lab-monitoring-alertmanager"
 }
 
 data "aws_cloudwatch_log_group" "web_app" {
@@ -102,29 +114,7 @@ resource "aws_ecs_task_definition" "web" {
   container_definitions = jsonencode([
     {
       name      = "web-app"
-      image     = "${data.aws_ecr_repository.ecs_repo.repository_url}:${var.image_tag}"
-      essential = true
-      entryPoint = ["/bin/sh", "-c"]
-      command = [
-        <<-EOT
-        mkdir -p /usr/share/nginx/html
-        echo "<html><body><h1>$WELCOME_MSG</h1></body></html>" > /usr/share/nginx/html/index.html
-        cat <<'EOF' > /etc/nginx/conf.d/default.conf
-        server {
-          listen 80;
-          location /web {
-            alias /usr/share/nginx/html;
-            index index.html;
-          }
-          location / {
-            root /usr/share/nginx/html;
-            index index.html;
-          }
-        }
-        EOF
-        exec nginx -g 'daemon off;'
-        EOT
-      ]
+      image     = "${data.aws_ecr_repository.web_repo.repository_url}:${var.image_tag}"
       portMappings = [
         {
           name          = "http-web"
@@ -183,6 +173,25 @@ resource "aws_ecs_service" "web" {
   }
 }
 
+resource "aws_efs_access_point" "prometheus_efs_ap" {
+  file_system_id = data.aws_efs_file_system.efs.id
+
+  posix_user {
+    uid = 65534
+    gid = 65534
+  }
+
+  root_directory {
+    path = "/prometheus"
+
+    creation_info {
+      owner_uid   = 65534
+      owner_gid   = 65534
+      permissions = "755"
+    }
+  }
+}
+
 # 5. MONITORING SERVICE (Сервіс, який збирає метрики)
 resource "aws_ecs_task_definition" "monitoring" {
   family                   = "monitoring-task"
@@ -199,13 +208,17 @@ resource "aws_ecs_task_definition" "monitoring" {
     efs_volume_configuration {
       file_system_id     = data.aws_efs_file_system.efs.id
       transit_encryption = "ENABLED"
+      authorization_config {
+        access_point_id = aws_efs_access_point.prometheus_efs_ap.id
+        iam             = "ENABLED"
+      }
     }
   }
 
   container_definitions = jsonencode([
     {
       name      = "prometheus"
-      image     = "prom/prometheus:latest"
+      image     = "${data.aws_ecr_repository.prometheus_repo.repository_url}:${var.image_tag}"
       portMappings = [
         {
           name          = "http-metrics"
@@ -214,33 +227,18 @@ resource "aws_ecs_task_definition" "monitoring" {
           protocol      = "tcp"
         }
       ]
-      "user": "0",
-      entryPoint = ["/bin/sh", "-c"]
-      command = [
-        <<-EOT
-        cat <<EOF > /etc/prometheus/prometheus.yml
-        global:
-          scrape_interval: $SCRAPE_INTERVAL
-        scrape_configs:
-          - job_name: 'prometheus'
-            static_configs:
-              - targets: ['web.lab.local:80']
-        EOF
-        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus
-        EOT
-      ]
-      secrets = [
-        {
-          name      = "SCRAPE_INTERVAL"
-          valueFrom = data.aws_ssm_parameter.mon_scrape_interval.arn
-        }
-      ]
       # Mount the EFS volume to the Prometheus data directory
       mountPoints = [
         {
           sourceVolume  = "prometheus-storage"
           containerPath = "/prometheus"
           readOnly      = false
+        }
+      ]
+      secrets = [
+        {
+          name      = "SCRAPE_INTERVAL"
+          valueFrom = data.aws_ssm_parameter.mon_scrape_interval.arn
         }
       ]
       logConfiguration = {
@@ -254,7 +252,7 @@ resource "aws_ecs_task_definition" "monitoring" {
     },
     {
       name      = "grafana"
-      image     = "grafana/grafana:latest"
+      image     = "${data.aws_ecr_repository.grafana_repo.repository_url}:${var.image_tag}"
       portMappings = [
         {
           name          = "http-grafana"
@@ -294,33 +292,19 @@ resource "aws_ecs_task_definition" "monitoring" {
     },
     {
       name      = "alertmanager"
-      image     = "prom/alertmanager:latest"
-      entryPoint = ["/bin/sh", "-c"]
-      command = [
-        <<-EOT
-        mkdir -p /etc/alertmanager
-        cat <<EOF > /etc/alertmanager/alertmanager.yml
-        route:
-          receiver: 'slack-notifications'
-        receivers:
-          - name: 'slack-notifications'
-            slack_configs:
-              - api_url: '$SLACK_WEBHOOK'
-                channel: '#alerts'
-        EOF
-        exec /bin/alertmanager \
-          --config.file=/etc/alertmanager/alertmanager.yml \
-          --storage.path=/alertmanager \
-          --web.external-url=http://${data.aws_lb.alb.dns_name}/alertmgr \
-          --web.route-prefix=/alertmgr
-        EOT
-      ]
+      image     = "${data.aws_ecr_repository.alertmanager_repo.repository_url}:${var.image_tag}"
       portMappings = [
         {
           name          = "http-alertmgr"
           containerPort = 9093
           hostPort      = 9093
           protocol      = "tcp"
+        }
+      ]
+      environment = [
+        {
+          name  = "EXTERNAL_URL"
+          value = "http://${data.aws_lb.alb.dns_name}/alertmanager/"
         }
       ]
       secrets = [
