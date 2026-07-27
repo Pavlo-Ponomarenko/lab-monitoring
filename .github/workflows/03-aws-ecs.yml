@@ -1,5 +1,3 @@
-name: Build and Push Images to ECR
-
 on:
   push:
     branches:
@@ -21,7 +19,6 @@ jobs:
       fail-fast: true
       matrix:
         service: [web, prometheus, grafana, alertmanager]
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -44,10 +41,9 @@ jobs:
         run: |
           echo 'Pushed image: ${{ steps.build.outputs.image-uri }}'
 
-deploy:
+  deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
