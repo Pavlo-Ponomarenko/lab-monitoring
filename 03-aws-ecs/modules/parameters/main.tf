@@ -1,7 +1,7 @@
 resource "aws_ssm_parameter" "web_welcome_msg" {
   name  = "/lab/web/welcome_msg"
   type  = "String"
-  value = "Hello from ECS"
+  value = "Hello from from new commit"
 }
 
 resource "aws_ssm_parameter" "mon_scrape_interval" {
