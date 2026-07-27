@@ -7,7 +7,7 @@ on:
 
 env:
   AWS_REGION: eu-central-1
-  SERVICES_PATH: lab-monitoring/03-aws-ecs/services
+  SERVICES_PATH: 03-aws-ecs/services
   ECS_CLUSTER: lab-ecs-cluster
 
 permissions:
