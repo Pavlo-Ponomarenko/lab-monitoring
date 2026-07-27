@@ -81,7 +81,7 @@ jobs:
           task-definition: ${{ steps.render-web.outputs.task-definition }}
           service: web-service
           cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+          wait-for-service-stability: false
 
       # ==========================================
       # 2. DEPLOY MONITORING SERVICE (MULTI-CONTAINER)
@@ -122,4 +122,4 @@ jobs:
           task-definition: ${{ steps.render-alertmanager.outputs.task-definition }}
           service: monitoring-service
           cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+          wait-for-service-stability: false
