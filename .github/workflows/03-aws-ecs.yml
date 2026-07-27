@@ -72,7 +72,7 @@ jobs:
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: task-def-web.json
-          container-name: web
+          container-name: web-app
           image: 132977458933.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/lab-monitoring-web:${{ steps.vars.outputs.short_sha }}
 
       - name: Deploy web-service
