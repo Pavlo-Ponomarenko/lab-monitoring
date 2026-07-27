@@ -44,25 +44,86 @@ jobs:
         run: |
           echo 'Pushed image: ${{ steps.build.outputs.image-uri }}'
 
-  deploy:
-    needs: build-and-push   # чекає, поки всі 4 образи будуть зібрані й запушені
+deploy:
+    needs: build-and-push
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix:
-        ecs-service: [web-service, monitoring-service]
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "short_sha=$(git rev-parse --short=7 HEAD)" >> $GITHUB_OUTPUT
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::132977458933:role/GithubActionsRole
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Force new deployment for ${{ matrix.ecs-service }}
+      # ==========================================
+      # 1. DEPLOY WEB SERVICE
+      # ==========================================
+      - name: Download web-service task definition
         run: |
-          aws ecs update-service \
-            --cluster "${{ env.ECS_CLUSTER }}" \
-            --service "${{ matrix.ecs-service }}" \
-            --force-new-deployment \
-            --region "${{ env.AWS_REGION }}"
+          aws ecs describe-task-definition \
+            --task-definition web-service \
+            --query taskDefinition > task-def-web.json
+
+      - name: Render web container image
+        id: render-web
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-def-web.json
+          container-name: web
+          image: 132977458933.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/lab-monitoring-web:${{ steps.vars.outputs.short_sha }}
+
+      - name: Deploy web-service
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-web.outputs.task-definition }}
+          service: web-service
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      # ==========================================
+      # 2. DEPLOY MONITORING SERVICE (MULTI-CONTAINER)
+      # ==========================================
+      - name: Download monitoring-service task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition monitoring-service \
+            --query taskDefinition > task-def-monitoring.json
+
+      - name: Render prometheus container image
+        id: render-prometheus
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-def-monitoring.json
+          container-name: prometheus
+          image: 132977458933.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/lab-monitoring-prometheus:${{ steps.vars.outputs.short_sha }}
+
+      - name: Render grafana container image
+        id: render-grafana
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.render-prometheus.outputs.task-definition }}
+          container-name: grafana
+          image: 132977458933.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/lab-monitoring-grafana:${{ steps.vars.outputs.short_sha }}
+
+      - name: Render alertmanager container image
+        id: render-alertmanager
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.render-grafana.outputs.task-definition }}
+          container-name: alertmanager
+          image: 132977458933.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/lab-monitoring-alertmanager:${{ steps.vars.outputs.short_sha }}
+
+      - name: Deploy monitoring-service
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-alertmanager.outputs.task-definition }}
+          service: monitoring-service
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

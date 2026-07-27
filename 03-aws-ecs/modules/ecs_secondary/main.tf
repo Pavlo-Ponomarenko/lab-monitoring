@@ -171,6 +171,10 @@ resource "aws_ecs_service" "web" {
     container_name   = "web-app"
     container_port   = 80
   }
+  lifecycle {
+    # Prevents Terraform from rolling back the service when GitHub Actions deploys a new task definition revision
+    ignore_changes = [task_definition]
+  }
 }
 
 resource "aws_efs_access_point" "prometheus_efs_ap" {
@@ -354,6 +358,11 @@ resource "aws_ecs_service" "monitoring" {
     target_group_arn = data.aws_lb_target_group.alertmanager.arn
     container_name   = "alertmanager"
     container_port   = 9093
+  }
+  
+  lifecycle {
+    # Prevents Terraform from rolling back the service when GitHub Actions deploys a new task definition revision
+    ignore_changes = [task_definition]
   }
 
   # Переконуємося, що веб-сервіс підніметься раніше або паралельно
