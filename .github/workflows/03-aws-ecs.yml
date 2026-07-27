@@ -41,7 +41,8 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Show pushed image
-        run: echo 'Pushed image: ${{ steps.build.outputs.image-uri }}'
+        run: |
+          echo 'Pushed image: ${{ steps.build.outputs.image-uri }}'
 
   deploy:
     needs: build-and-push   # чекає, поки всі 4 образи будуть зібрані й запушені
