@@ -41,7 +41,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Show pushed image
-        run: echo "Pushed image: ${{ steps.build.outputs.image-uri }}"
+        run: echo 'Pushed image: ${{ steps.build.outputs.image-uri }}'
 
   deploy:
     needs: build-and-push   # чекає, поки всі 4 образи будуть зібрані й запушені
@@ -50,14 +50,14 @@ jobs:
       fail-fast: true
       matrix:
         ecs-service: [web-service, monitoring-service]
- 
+
     steps:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::132977458933:role/GithubActionsRole
           aws-region: ${{ env.AWS_REGION }}
- 
+
       - name: Force new deployment for ${{ matrix.ecs-service }}
         run: |
           aws ecs update-service \

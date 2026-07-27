@@ -24,7 +24,7 @@ outputs:
     description: 'Повний URI запушеного образу (registry/repo:tag)'
     value: ${{ steps.push.outputs.image }}
   registry-uri:
-    description: 'DNS-ім'я ECR-репозиторію (без тегу)'
+    description: "DNS-ім'я ECR-репозиторію (без тегу)"
     value: ${{ steps.get-repo.outputs.repository_uri }}
 
 runs:
