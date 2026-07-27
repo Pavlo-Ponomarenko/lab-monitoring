@@ -64,7 +64,7 @@ jobs:
       - name: Download web-service task definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition web-service \
+            --task-definition web-task \
             --query taskDefinition > task-def-web.json
 
       - name: Render web container image
@@ -89,7 +89,7 @@ jobs:
       - name: Download monitoring-service task definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition monitoring-service \
+            --task-definition monitoring-task \
             --query taskDefinition > task-def-monitoring.json
 
       - name: Render prometheus container image
