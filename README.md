@@ -171,6 +171,8 @@ kubectl port-forward -n monitoring svc/grafana 3000:3000
 - Argo CD синхронізує стан кластера з Git — зміна в `values.yaml` після `git push`
   автоматично докочується без ручного `kubectl apply`.
 
+  
+
 ```bash
 eksctl create cluster --name lab-eks --nodes 1 --node-type t3.small --spot
 helm install monitoring prometheus-community/kube-prometheus-stack -n monitoring
