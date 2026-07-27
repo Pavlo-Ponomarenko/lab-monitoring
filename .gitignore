@@ -1,6 +1,7 @@
 **/certificates/*
 **/.terraform/*
 *.terraform.lock.hcl
+.terraform.tfstate.lock.info
 *.tfstate
 *.tfstate.backup
 *.tfvars

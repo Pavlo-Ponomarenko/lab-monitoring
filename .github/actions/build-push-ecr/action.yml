@@ -1,0 +1,71 @@
+name: 'Build and Push to ECR'
+description: >
+  Отримує DNS-ім'я (repositoryUri) ECR-репозиторію за назвою,
+  білдить Docker-образ з вказаного каталогу і пушить його в ECR
+  з тегом = короткий (7 символів) commit SHA.
+
+inputs:
+  ecr-repository:
+    description: 'Назва ECR-репозиторію (наприклад lab-monitoring-web)'
+    required: true
+  build-context:
+    description: 'Шлях до каталогу з Dockerfile'
+    required: true
+  aws-region:
+    description: 'Регіон AWS, де знаходиться ECR-репозиторій'
+    required: true
+  image-tag:
+    description: 'Тег образу. Якщо не заданий — використовується короткий commit SHA'
+    required: false
+    default: ''
+
+outputs:
+  image-uri:
+    description: 'Повний URI запушеного образу (registry/repo:tag)'
+    value: ${{ steps.push.outputs.image }}
+  registry-uri:
+    description: 'DNS-ім'я ECR-репозиторію (без тегу)'
+    value: ${{ steps.get-repo.outputs.repository_uri }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Determine image tag
+      id: tag
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.image-tag }}" ]; then
+          echo "tag=${{ inputs.image-tag }}" >> "$GITHUB_OUTPUT"
+        else
+          echo "tag=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Get ECR repository DNS name
+      id: get-repo
+      shell: bash
+      run: |
+        REPO_URI=$(aws ecr describe-repositories \
+          --repository-names "${{ inputs.ecr-repository }}" \
+          --region "${{ inputs.aws-region }}" \
+          --query 'repositories[0].repositoryUri' \
+          --output text)
+        echo "Repository DNS: $REPO_URI"
+        echo "repository_uri=$REPO_URI" >> "$GITHUB_OUTPUT"
+
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build image
+      shell: bash
+      run: |
+        docker build \
+          -t "${{ steps.get-repo.outputs.repository_uri }}:${{ steps.tag.outputs.tag }}" \
+          "${{ inputs.build-context }}"
+
+    - name: Push image to ECR
+      id: push
+      shell: bash
+      run: |
+        IMAGE="${{ steps.get-repo.outputs.repository_uri }}:${{ steps.tag.outputs.tag }}"
+        docker push "$IMAGE"
+        echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
